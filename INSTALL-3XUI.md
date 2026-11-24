@@ -284,5 +284,3 @@ ADMIN_LOGIN=новый_логин ADMIN_PASSWORD='новый_пароль_от_1
 
 **Бот не отвечает.** Посмотрите `docker compose logs bot`, проверьте токен
 на вкладке «Бот» и что бот запущен.
-
-**Нужна помощь.** Чат: [@reactuschat](https://t.me/reactuschat).

@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🛡️ Reactus VPN Panel
+# 🛡️ VPN Panel
 
 **Панель управления VPN-бизнесом поверх [Remnawave](https://github.com/remnawave) со встроенным Telegram-ботом продаж.**
 Разворачивается одной командой на своём сервере — без привязки к чужому облаку.
@@ -9,12 +9,6 @@
 [![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688?logo=fastapi&logoColor=white)](backend)
 [![React](https://img.shields.io/badge/frontend-React%20%2B%20Vite-61DAFB?logo=react&logoColor=black)](frontend)
 [![aiogram](https://img.shields.io/badge/bot-aiogram%203-2CA5E0?logo=telegram&logoColor=white)](bot)
-
-<br/>
-
-[![Чат в Telegram](https://img.shields.io/badge/💬_Чат_панели-@reactuschat-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/reactuschat)
-
-Вопросы, помощь с установкой и новости об обновлениях — в нашем [Telegram-чате](https://t.me/reactuschat).
 
 </div>
 
