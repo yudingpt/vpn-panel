@@ -12,7 +12,7 @@ from app.api.deps import CurrentAdmin, DbSession
 from app.core.config import settings
 from app.services import telegram
 from app.services.links import normalize_support_link
-from shared.botcopy import CopyError, validate_button
+from shared.botcopy import RETIRED_BUTTON_KEYS, CopyError, validate_button
 from app.services.telegram import TelegramError
 from shared import bus
 from shared.crypto import decrypt, encrypt, mask
@@ -169,12 +169,17 @@ def _status(row: BotConfig) -> BotStatusOut:
         menu_photo_url=(
             f"{settings.public_url}/uploads/{row.menu_photo}" if row.menu_photo else None
         ),
-        allow_multiple_subscriptions=row.allow_multiple_subscriptions,
+        # Несколько подписок на клиента больше не поддерживаются.
+        allow_multiple_subscriptions=False,
         menu_hidden=list(row.menu_hidden or []),
         menu_columns=row.menu_columns or 1,
         menu_styles=dict(row.menu_styles or {}),
         menu_mode=row.menu_mode or "keyboard",
-        menu_labels=dict(row.menu_labels or {}),
+        menu_labels={
+            key: text
+            for key, text in (row.menu_labels or {}).items()
+            if key not in RETIRED_BUTTON_KEYS
+        },
         support_mode=row.support_mode or "link",
         config_applied_at=row.config_applied_at,
         discount_percent=row.discount_percent or 0,
@@ -394,8 +399,8 @@ class BotSettingsIn(BaseModel):
     privacy_policy_url: str | None = Field(default=None, max_length=512)
     terms_url: str | None = Field(default=None, max_length=512)
 
-    # Несколько ключей на клиента («Купить ещё одну») или одна подписка,
-    # которую «Купить» продлевает.
+    # Оставлено для совместимости с API: всегда False, несколько подписок
+    # на клиента не поддерживаются.
     allow_multiple_subscriptions: bool = False
     # Скрытые кнопки меню — ключи из MENU_BUTTONS (bot/app/keyboards.py).
     menu_hidden: list[str] = Field(default_factory=list, max_length=32)
@@ -418,6 +423,10 @@ class BotSettingsIn(BaseModel):
     def _labels(cls, value: dict[str, str]) -> dict[str, str]:
         clean: dict[str, str] = {}
         for key, text in value.items():
+            # Подпись удалённой кнопки из старых настроек не должна ломать
+            # сохранение остальных настроек.
+            if key in RETIRED_BUTTON_KEYS:
+                continue
             try:
                 checked = validate_button(key, text or "")
             except CopyError as exc:
@@ -450,6 +459,8 @@ async def save_settings(
     row = await _config(db)
     for field, value in data.model_dump().items():
         setattr(row, field, value)
+    # Поле оставлено в API для совместимости, но функция выключена навсегда.
+    row.allow_multiple_subscriptions = False
     row.purchase_notify_chat_id = data.purchase_notify_chat_id or None
     _audit(db, admin, "bot.settings", request)
     await db.flush()

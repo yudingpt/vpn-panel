@@ -6,7 +6,6 @@
 
 import html
 import logging
-import secrets
 import time
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
@@ -58,13 +57,15 @@ async def config_files(config: Config, ref: int | str) -> list:
         return []
 
 
-async def _create_or_adopt(client: RemnawaveClient, **kwargs):
+async def _create_or_adopt(
+    client: RemnawaveClient, *, extend_on_conflict: bool = False, **kwargs
+):
     """POST /api/users, а при конфликте по username — подхватываем уже
     существующий аккаунт с этим именем и приводим его к нужным параметрам.
 
-    Имя `tg_<id>` детерминировано: аккаунт мог остаться от прошлой
-    установки бота или быть создан вручную в Remnawave. Раньше такой
-    пользователь получал «попробуйте позже» навсегда."""
+    Имя — числовой Telegram ID: такой аккаунт мог остаться от старого бота
+    (ProxyMaster писал username = TG ID) или быть заведён вручную. Раньше
+    такой пользователь получал «попробуйте позже» навсегда."""
     try:
         return await client.create_user(**kwargs)
     except RemnawaveError as exc:
@@ -79,8 +80,21 @@ async def _create_or_adopt(client: RemnawaveClient, **kwargs):
             kwargs["username"],
             remote.ref,
         )
+        new_expire = _aware(kwargs["expire_at"])
+        remote_expire = _aware(remote.expire_at)
+        if extend_on_conflict and remote_expire is not None:
+            # Покупка добавляет срок к ещё живому аккаунту, а не перезаписывает
+            # его: клиент оплатил дни сверх уже имеющихся.
+            plan_length = new_expire - datetime.now(UTC)
+            target_expire = _base_for_extension(remote_expire) + plan_length
+        else:
+            # Остальные выдачи (триал, бонусы) не должны уменьшать срок
+            # подхваченного аккаунта.
+            target_expire = (
+                max(new_expire, remote_expire) if remote_expire is not None else new_expire
+            )
         fields: dict = {
-            "expireAt": kwargs["expire_at"].strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "expireAt": target_expire.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
             "status": "ACTIVE",
             "activeInternalSquads": kwargs["internal_squad_uuids"],
             "trafficLimitBytes": kwargs.get("traffic_limit_bytes", 0),
@@ -191,19 +205,8 @@ def _apply_profile(user: BotUser, profile: dict[str, object]) -> None:
 
 
 def _username_for(telegram_id: int) -> str:
-    # Имя в Remnawave должно быть стабильным и уникальным — берём telegram_id.
-    return f"tg_{telegram_id}"
-
-
-def _new_key_username(telegram_id: int, payment_id: int | None = None) -> str:
-    # Для дополнительных ключей нужна ГЛОБАЛЬНО уникальная строка — иначе
-    # второй ключ того же пользователя столкнётся по username с первым.
-    # Ключ по внешней оплате называется по её id: если после создания ключа
-    # упала запись в БД, повторная обработка той же оплаты наткнётся на
-    # занятое имя и подхватит уже созданный аккаунт, а не заведёт второй.
-    if payment_id is not None:
-        return f"tg_{telegram_id}_p{payment_id}"
-    return f"tg_{telegram_id}_{secrets.token_hex(3)}"
+    # У клиента ровно один ключ, поэтому имя в Remnawave — просто Telegram ID.
+    return str(telegram_id)
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -692,14 +695,12 @@ async def create_subscription(
     *,
     source: str,
     amount_kopeks: int | None = None,
-    payment_id: int | None = None,
 ) -> BotSubscription:
-    """Покупка тарифа как в исходном боте: КАЖДАЯ покупка заводит новый
-    независимый ключ (свой аккаунт Remnawave), а не продлевает старый.
+    """Выдача тарифа. У клиента ровно один ключ: если он уже есть,
+    покупка продлевает его, а не заводит отдельный аккаунт Remnawave.
 
-    Исключение — пробный ключ: если у пользователя есть только триал,
-    покупка превращает его в платный (сквады, лимит устройств и срок
-    тарифа), иначе меню и напоминания продолжали бы жить по датам триала.
+    Пробный ключ апгрейдится на месте — иначе меню и напоминания жили бы
+    по датам триала рядом с оплаченной подпиской.
     """
     paid = plan.price_kopeks if amount_kopeks is None else amount_kopeks
     expire_at = datetime.now(UTC) + timedelta(days=plan.days)
@@ -716,11 +717,24 @@ async def create_subscription(
             )
 
     trial = await _trial_key(db, user)
+    if trial is None:
+        existing = await renew_target(db, user)
+        if existing is not None:
+            if panel_type() == XUI and existing.expire_at is None:
+                # Бессрочный ключ, пришедший из панели, не продлевается —
+                # заменяем его новым с реальным сроком, как и раньше.
+                await forget_remote_key(
+                    db, remnawave_id=None, remnawave_uuid=existing.remnawave_uuid
+                )
+            else:
+                return await extend_subscription(
+                    db, config, existing, plan, source=source, amount_kopeks=paid
+                )
 
     client = client_for(config)
     try:
         create_kwargs = dict(
-            username=_new_key_username(user.telegram_id, payment_id),
+            username=_username_for(user.telegram_id),
             expire_at=expire_at,
             internal_squad_uuids=plan.squad_uuids,
             telegram_id=user.telegram_id,
@@ -729,7 +743,6 @@ async def create_subscription(
             description=describe_grant(user, source),
         )
         if trial is not None:
-            create_kwargs["username"] = trial.username
             create_kwargs["description"] = describe_grant(user, source, note="с пробного")
             remote = await _update_or_recreate(
                 client,
@@ -744,7 +757,7 @@ async def create_subscription(
             )
             await _reset_traffic_if_limited(client, remote.ref, plan)
         else:
-            remote = await _create_or_adopt(client, **create_kwargs)
+            remote = await _create_or_adopt(client, extend_on_conflict=True, **create_kwargs)
     finally:
         await client.aclose()
 
@@ -990,9 +1003,9 @@ async def after_paid_purchase(
 
 
 async def renew_target(db: AsyncSession, user: BotUser) -> BotSubscription | None:
-    """Ключ, который продлевает «Купить», когда несколько подписок на
-    клиента не разрешены: тот, что живёт дольше всех (его же видно в шапке
-    меню, см. shared/sync.py)."""
+    """Единственный ключ клиента, который продлевает «Купить». Если в базе
+    остались старые ключи, берём живущий дольше всех — он же виден в шапке
+    меню (см. shared/sync.py)."""
     return await db.scalar(
         select(BotSubscription)
         .where(BotSubscription.user_id == user.id)

@@ -29,7 +29,7 @@ die() { err "$1"; exit 1; }
 # команда обновления не работала. В этом случае скачиваем свою копию.
 # Плюс stdin перезапущенного скрипта — /dev/null: иначе docker compose run
 # читал бы из пайпа остаток скрипта.
-UPDATE_URL="${VPN_PANEL_UPDATE_URL:-https://raw.githubusercontent.com/valentinvelnesev-alt/vpn-panel/main/update.sh}"
+UPDATE_URL="${VPN_PANEL_UPDATE_URL:-https://raw.githubusercontent.com/yudingpt/vpn-panel/main/update.sh}"
 if [ -z "${VPN_PANEL_UPDATE_REEXEC:-}" ]; then
     TMP_SELF="$(mktemp /tmp/vpn-panel-update.XXXXXX.sh)"
     if [ -f "$0" ]; then

@@ -57,7 +57,7 @@ Telegram-бота и хотите управлять всем этим из од
 Ubuntu 22.04+ с правами root:
 
 ```bash
-git clone https://github.com/valentinvelnesev-alt/vpn-panel vpn-panel && cd vpn-panel
+git clone https://github.com/yudingpt/vpn-panel vpn-panel && cd vpn-panel
 sudo bash install.sh
 ```
 
@@ -170,7 +170,7 @@ Remnawave достаточно заменить файл и перегенери
 Если панель уже установлена, обновитесь одной командой:
 
 ```bash
-cd vpn-panel && curl -fsSL https://raw.githubusercontent.com/valentinvelnesev-alt/vpn-panel/main/update.sh -o update.sh && bash update.sh
+cd vpn-panel && curl -fsSL https://raw.githubusercontent.com/yudingpt/vpn-panel/main/update.sh -o update.sh && bash update.sh
 ```
 
 > [!IMPORTANT]

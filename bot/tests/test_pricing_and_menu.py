@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app import handlers, keyboards
 from app.services import pricing
 from app.services import subscriptions as subs
-from shared.db.models import Plan, Wallet
+from shared.db.models import BotSubscription, Plan, Wallet
 from tests.test_fixes import PLAN, config, db, engine, remote  # noqa: F401  — фикстуры
 
 PERSONAL = replace(PLAN, id=50, title="VIP", price_kopeks=10000, owner_user_id=1)
@@ -92,8 +92,9 @@ def test_menu_renew_with_subscription(config) -> None:
     callbacks = _callbacks(_menu(config, has_subscription=True))
     assert "renew" in callbacks
     assert "plans" not in callbacks and "plans_new" not in callbacks
+    # Флаг из БД больше не включает второй ключ.
     multi = replace(config, allow_multiple_subscriptions=True)
-    assert "plans_new" in _callbacks(_menu(multi, has_subscription=True))
+    assert "plans_new" not in _callbacks(_menu(multi, has_subscription=True))
 
 
 def test_menu_buttons_can_be_hidden(config) -> None:
@@ -130,11 +131,15 @@ async def test_buy_turns_into_renewal_with_single_subscription(db, config, remot
     assert pay.description.startswith("Продление")
 
 
-async def test_buy_creates_new_key_when_multiple_allowed(db, config, remote) -> None:
+async def test_buy_never_creates_second_key(db, config, remote) -> None:
     cfg = replace(config, allow_multiple_subscriptions=True)
     user = await _user_with_key(db, cfg)
     pay = await handlers._resolve_pay_target(db, cfg, user, "plan", str(PLAN.id))
-    assert pay.ok and pay.subscription is None
+    assert pay.ok and pay.subscription is not None
+    rows = await db.scalars(
+        select(BotSubscription).where(BotSubscription.user_id == user.id)
+    )
+    assert len(list(rows)) == 1
 
 
 async def test_pay_target_uses_global_discount(db, config) -> None:

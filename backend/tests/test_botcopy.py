@@ -132,6 +132,17 @@ def test_button_labels_saved_with_menu_settings(client: TestClient) -> None:
     assert bad.status_code == 422
 
 
+def test_retired_button_label_does_not_break_settings_save(client: TestClient) -> None:
+    # Подпись «Купить ещё одну» могла остаться в настройках старой установки.
+    status = client.get("/api/v1/bot").json()
+    r = client.put(
+        "/api/v1/bot/settings",
+        json={**status, "menu_labels": {"buy_more": "Моя подпись"}},
+    )
+    assert r.status_code == 200
+    assert "buy_more" not in r.json()["menu_labels"]
+
+
 def test_texts_require_auth() -> None:
     with TestClient(app) as anon:
         assert anon.get("/api/v1/bot/texts").status_code == 401

@@ -264,11 +264,10 @@ async def test_regular_and_admin_users_pass(db, answers) -> None:
     assert answers == []
 
 
-# ── Улучшения: имя ключа по оплате, курс Stars, истёкшие счета ────────
-def test_paid_key_username_is_stable_per_payment() -> None:
-    assert subs._new_key_username(5, 42) == subs._new_key_username(5, 42) == "tg_5_p42"
-    # Без оплаты (баланс, админ) — случайный суффикс, как раньше.
-    assert subs._new_key_username(5) != subs._new_key_username(5)
+# ── Улучшения: имя ключа, курс Stars, истёкшие счета ───────────────────
+def test_key_username_is_plain_telegram_id() -> None:
+    assert subs._username_for(5) == "5"
+    assert subs._username_for(8039747539) == "8039747539"
 
 
 def test_stars_rate_from_panel() -> None:

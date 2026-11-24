@@ -273,8 +273,8 @@ async def _channel_ok(bot: Bot, config: Config, telegram_id: int) -> bool:
 def _menu_text(config: Config, *, name: str, user: BotUser, plan_title: str | None) -> str:
     """Шапка меню: кто вы, что с подпиской и до какого числа.
 
-    Дата берётся с ключа с самым поздним сроком (см. shared/sync.py), так
-    что у владельца нескольких подписок здесь всегда актуальная."""
+    Дата берётся с ключа с самым поздним сроком (см. shared/sync.py): если
+    в базе остались старые ключи, в шапке виден самый актуальный."""
     if config.welcome_text:
         return t(config, config.welcome_text, brand=config.brand)
 
@@ -617,13 +617,12 @@ async def _show_plans(
 
 @router.callback_query(F.data == "plans")
 async def cb_plans(callback: CallbackQuery, config: Config) -> None:
-    """«Купить подписку». Если ключ уже есть, а несколько подписок в панели
-    не разрешены, — ведём в продление (в том числе со старых кнопок в
-    истории чата): иначе клиент платил бы за второй ключ вместо продления."""
+    """«Купить подписку». Если ключ уже есть — ведём в продление (в том
+    числе со старых кнопок в истории чата): второй ключ не создаётся."""
     async with session() as db:
         user = await subs.get_or_create_user(db, callback.from_user.id)
         count = await subs.subscription_count(db, user)
-    if count and not config.allow_multiple_subscriptions:
+    if count:
         await cb_renew(callback, config)
         return
     await _show_plans(callback, config)
@@ -631,11 +630,8 @@ async def cb_plans(callback: CallbackQuery, config: Config) -> None:
 
 @router.callback_query(F.data == "plans_new")
 async def cb_plans_new(callback: CallbackQuery, config: Config) -> None:
-    """«Купить ещё одну» — отдельный новый ключ (если это разрешено)."""
-    if not config.allow_multiple_subscriptions:
-        await cb_renew(callback, config)
-        return
-    await _show_plans(callback, config)
+    """Старая кнопка «Купить ещё одну» из истории чата: теперь продлевает."""
+    await cb_renew(callback, config)
 
 
 @router.callback_query(F.data == "renew")
@@ -862,7 +858,7 @@ async def _resolve_pay_target(
 ) -> PayTarget:
     """Разбирает `target` из callback_data.
 
-    purpose == "plan"    → "{plan_id}" — покупка НОВОГО ключа.
+    purpose == "plan"    → "{plan_id}" — покупка тарифа (при наличии ключа — продление).
     purpose == "renew"   → "{subscription_id}-{plan_id}" — продление
     конкретного ключа (проверяем, что он принадлежит пользователю).
     purpose == "traffic" → "{subscription_id}-{package_id}" — докупка трафика.
@@ -923,18 +919,17 @@ async def _resolve_pay_target(
     if plan is None:
         return EMPTY_TARGET
     amount = discounted_kopeks(plan.price_kopeks, config.plan_discount(plan, user.discount_percent))
-    if not config.allow_multiple_subscriptions:
-        # Одна подписка на клиента: «покупка» при уже существующем ключе —
-        # это продление его, а не второй ключ. Проверка здесь, а не только
-        # в меню: кнопки старых сообщений в истории чата всё ещё нажимаются.
-        existing = await subs.renew_target(db, user)
-        if existing is not None:
-            return PayTarget(
-                amount_kopeks=amount,
-                description=f"Продление «{plan.full_title}»",
-                plan=plan,
-                subscription=existing,
-            )
+    # «Покупка» при уже существующем ключе — это продление, а не второй
+    # ключ. Проверка здесь, а не только в меню: кнопки старых сообщений
+    # в истории чата всё ещё нажимаются.
+    existing = await subs.renew_target(db, user)
+    if existing is not None:
+        return PayTarget(
+            amount_kopeks=amount,
+            description=f"Продление «{plan.full_title}»",
+            plan=plan,
+            subscription=existing,
+        )
     return PayTarget(
         amount_kopeks=amount,
         description=f"Оплата тарифа «{plan.full_title}»",
@@ -1400,7 +1395,7 @@ async def cb_ad_stats(callback: CallbackQuery, config: Config, bot: Bot) -> None
     await callback.answer()
 
 
-# ── Мои подписки (несколько ключей на пользователя) ────────────────────
+# ── Мои подписки (ключ пользователя) ──────────────────────────────────
 @router.callback_query(F.data == "my_subscriptions")
 async def cb_my_subscriptions(callback: CallbackQuery, config: Config) -> None:
     async with session() as db:

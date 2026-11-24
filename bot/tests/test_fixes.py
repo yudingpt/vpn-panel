@@ -199,13 +199,16 @@ async def test_purchase_upgrades_trial_key_instead_of_second_account(db, config,
     assert 29 <= (user.expire_at.replace(tzinfo=UTC) - datetime.now(UTC)).days <= 30
 
 
-async def test_second_purchase_creates_separate_key(db, config, remote) -> None:
+async def test_second_purchase_renews_same_key(db, config, remote) -> None:
     user = await subs.get_or_create_user(db, 777)
     first = await subs.create_subscription(db, config, user, PLAN, source="wallet")
     second = await subs.create_subscription(db, config, user, PLAN, source="wallet")
     await db.commit()
-    assert first.remnawave_id != second.remnawave_id
-    assert remote[-1][0] == "POST /api/users"
+    assert first.id == second.id
+    assert first.remnawave_id == second.remnawave_id
+    assert remote[-1][0] == "PATCH /api/users"
+    rows = list(await db.scalars(select(BotSubscription).where(BotSubscription.user_id == user.id)))
+    assert len(rows) == 1
 
 
 async def test_user_summary_follows_latest_key(db, config, remote) -> None:
@@ -415,8 +418,8 @@ async def test_payment_processor_applies_plan_with_category(db, engine, config, 
 
 # ── Remnawave: занятое имя и лимит трафика ────────────────────────────
 async def test_create_adopts_existing_remnawave_username(db, config, monkeypatch) -> None:
-    """Аккаунт tg_<id> уже есть в Remnawave (старая установка) — вместо
-    вечного «попробуйте позже» подхватываем его и обновляем."""
+    """Аккаунт с числовым именем уже есть в Remnawave — вместо вечного
+    «попробуйте позже» подхватываем его и обновляем."""
     import json
 
     calls: list[tuple[str, dict]] = []
@@ -444,8 +447,54 @@ async def test_create_adopts_existing_remnawave_username(db, config, monkeypatch
     user = await subs.grant_trial(db, config, user)
     assert user.remnawave_uuid == "42"
     methods = [m for m, _ in calls]
-    assert methods == ["POST /api/users", "GET /api/users/by-username/tg_777", "PATCH /api/users"]
+    assert methods == ["POST /api/users", "GET /api/users/by-username/777", "PATCH /api/users"]
     assert calls[-1][1]["activeInternalSquads"] == ["squad-trial"]
+
+
+async def test_purchase_adopts_named_account_and_adds_days(db, config, monkeypatch) -> None:
+    """Покупка при занятом числовом имени прибавляет дни к живому сроку."""
+    import json
+
+    calls: list[tuple[str, dict]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else {}
+        calls.append((f"{request.method} {request.url.path}", body))
+        if request.method == "POST" and request.url.path == "/api/users":
+            return httpx.Response(400, json={"message": "User with this username already exists"})
+        if request.url.path.startswith("/api/users/by-username/"):
+            future = datetime.now(UTC) + timedelta(days=60)
+            return httpx.Response(
+                200,
+                json={"response": {
+                    **REMOTE,
+                    "username": "777",
+                    "id": 42,
+                    "expireAt": future.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                }},
+            )
+        return httpx.Response(200, json={"response": {**REMOTE, "id": 42}})
+
+    from shared.remnawave import client as rw
+
+    original = rw.RemnawaveClient.__init__
+
+    def patched(self, base_url, token, **kwargs):
+        original(self, base_url, token, **kwargs)
+        self._client = httpx.AsyncClient(base_url=base_url, transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(rw.RemnawaveClient, "__init__", patched)
+
+    async def _no_link(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(subs, "link_from_remnawave", _no_link)
+
+    user = await subs.get_or_create_user(db, 777)
+    await subs.create_subscription(db, config, user, PLAN, source="wallet")
+    patch = calls[-1][1]
+    expire = datetime.fromisoformat(patch["expireAt"].replace("Z", "+00:00"))
+    assert 89 <= (expire - datetime.now(UTC)).days <= 90  # 60 оставалось + 30 куплено
 
 
 async def test_renewal_of_limited_plan_resets_traffic(db, config, remote) -> None:

@@ -150,9 +150,9 @@ async def _apply(payment_id: int) -> Applied | None:
                         "У платежа %s не найден ключ %s", payment_id, payment.subscription_id
                     )
                     return None
-            elif not config.allow_multiple_subscriptions:
-                # Счёт выставлен до появления ключа или до смены настройки —
-                # всё равно продлеваем существующий, а не плодим второй.
+            else:
+                # Счёт выставлен до появления ключа — всё равно продлеваем
+                # существующий, а не плодим второй.
                 subscription = await subs.renew_target(db, user)
             kind = "renewal" if subscription is not None else "purchase"
             if subscription is not None:
@@ -167,7 +167,6 @@ async def _apply(payment_id: int) -> Applied | None:
                     plan,
                     source=str(payment.provider),
                     amount_kopeks=payment.amount_kopeks,
-                    payment_id=payment.id,
                 )
             until = subscription.expire_at
             # Скидка из промокода — на одну покупку.

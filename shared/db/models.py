@@ -253,9 +253,8 @@ class BotConfig(Base, TimestampMixin):
         DateTime(timezone=True), default=None
     )
 
-    # False — у клиента одна подписка: «Купить» при уже купленной подписке
-    # продлевает её, а не заводит второй ключ. True — как раньше, каждая
-    # покупка через «Купить ещё одну» создаёт отдельный ключ.
+    # Оставлено для совместимости со схемой БД: всегда False, у клиента один
+    # ключ, «Купить» при уже купленной подписке продлевает её.
     allow_multiple_subscriptions: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )

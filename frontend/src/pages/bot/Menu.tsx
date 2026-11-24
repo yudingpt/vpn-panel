@@ -16,7 +16,6 @@ import { cn } from '@/lib/cn'
 const MENU_BUTTONS: [string, string, boolean, boolean][] = [
   ['trial', 'Попробовать бесплатно', true, true],
   ['buy', 'Купить / Продлить', false, true],
-  ['buy_more', 'Купить ещё одну', false, true],
   ['subscriptions', 'Подписка', true, true],
   ['connect', 'Подключиться', true, true],
   ['profile', 'Личный кабинет', true, true],
@@ -31,7 +30,7 @@ const MENU_BUTTONS: [string, string, boolean, boolean][] = [
 
 // Кнопки, у которых в боте есть цвет (у «Помощи» и истории его нет).
 const COLORABLE = new Set([
-  'trial', 'buy', 'buy_more', 'subscriptions', 'connect', 'profile', 'balance',
+  'trial', 'buy', 'subscriptions', 'connect', 'profile', 'balance',
   'referral', 'promo', 'channel', 'support',
 ])
 const DEFAULT_STYLES: Record<string, ButtonStyle> = { trial: 'success', referral: 'success' }
@@ -48,7 +47,6 @@ const LABEL_KEYS: Record<string, [string, string][]> = {
     ['buy', 'Нет подписки'],
     ['renew', 'Есть подписка'],
   ],
-  buy_more: [['buy_more', '']],
   subscriptions: [['subscriptions', '']],
   connect: [['connect', '']],
   profile: [['profile', '']],
@@ -152,7 +150,6 @@ function MenuEditor({ status }: { status: BotStatus }) {
   const styleOf = (key: string) => form.menu_styles[key] ?? DEFAULT_STYLES[key] ?? 'none'
   const visible = (key: string) => {
     if (form.menu_hidden.includes(key)) return false
-    if (key === 'buy_more') return form.allow_multiple_subscriptions
     if (key === 'channel') return !!form.channel_url
     if (key === 'support') return !!form.support_url || status.support_mode === 'bot'
     return true
@@ -181,7 +178,6 @@ function MenuEditor({ status }: { status: BotStatus }) {
   if (!hasSub && visible('trial')) add('trial', 'trial')
   if (hasSub) {
     add('buy', 'renew')
-    if (visible('buy_more')) add('buy_more', 'buy_more')
     if (visible('subscriptions')) add('subscriptions', 'subscriptions')
     if (visible('connect')) add('connect', 'connect')
   } else {
@@ -301,8 +297,7 @@ function MenuEditor({ status }: { status: BotStatus }) {
             </div>
             <p className="text-xs text-muted">
               В подписи баланса можно оставить <code>{'{balance}'}</code> — туда подставится сумма
-              клиента. «Наш канал» и «Поддержка» появятся, когда указаны их ссылки; «Купить ещё
-              одну» — если в «Тарифах» разрешено несколько подписок.
+              клиента. «Наш канал» и «Поддержка» появятся, когда указаны их ссылки.
             </p>
           </div>
 

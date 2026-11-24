@@ -368,44 +368,41 @@ async def test_trial_then_purchase_through_3xui(db, fake) -> None:
     user = await subs.grant_trial(db, config, user)
     await db.commit()
 
-    assert user.remnawave_uuid == "tg_777"
-    trial_sub_id = fake.clients["tg_777"]["subId"]
+    assert user.remnawave_uuid == "777"
+    trial_sub_id = fake.clients["777"]["subId"]
     trial_url = f"https://sub.example:2096/sub/{trial_sub_id}"
     assert re.fullmatch(r"[a-z0-9]{16}", trial_sub_id)
     assert user.subscription_url == trial_url
-    assert fake.links["tg_777"] == {1}
+    assert fake.links["777"] == {1}
 
     await subs.grant_plan(db, config, user, config.plans[0], source="manual")
     await db.commit()
 
     # Тот же клиент продлён, а не создан второй — ссылка не меняется.
-    assert list(fake.clients) == ["tg_777"]
-    assert fake.links["tg_777"] == {1, 2}
-    expire = datetime.fromtimestamp(fake.clients["tg_777"]["expiryTime"] / 1000, tz=UTC)
+    assert list(fake.clients) == ["777"]
+    assert fake.links["777"] == {1, 2}
+    expire = datetime.fromtimestamp(fake.clients["777"]["expiryTime"] / 1000, tz=UTC)
     assert 32 <= (expire - datetime.now(UTC)).days <= 33
-    assert fake.clients["tg_777"]["subId"] == trial_sub_id
+    assert fake.clients["777"]["subId"] == trial_sub_id
     assert user.subscription_url == trial_url
 
 
-async def test_trial_upgrade_and_additional_purchase_keep_independent_urls(db, fake) -> None:
+async def test_trial_upgrade_and_next_purchase_renew_same_key(db, fake) -> None:
     config = _config()
     user = await subs.get_or_create_user(db, 777)
     await subs.grant_trial(db, config, user)
     trial_url = user.subscription_url
-    trial_sub_id = fake.clients["tg_777"]["subId"]
+    trial_sub_id = fake.clients["777"]["subId"]
 
     upgraded = await subs.create_subscription(db, config, user, config.plans[0], source="manual")
-    assert upgraded.username == "tg_777"
+    assert upgraded.username == "777"
     assert upgraded.subscription_url == trial_url
-    assert fake.clients["tg_777"]["subId"] == trial_sub_id
+    assert fake.clients["777"]["subId"] == trial_sub_id
 
-    additional = await subs.create_subscription(db, config, user, config.plans[0], source="manual")
-    additional_sub_id = fake.clients[additional.username]["subId"]
-    assert re.fullmatch(r"[a-z0-9]{16}", additional_sub_id)
-    assert additional_sub_id != trial_sub_id
-    assert additional.subscription_url == f"https://sub.example:2096/sub/{additional_sub_id}"
-    assert upgraded.subscription_url == trial_url
-    assert len(fake.clients) == 2
+    renewed = await subs.create_subscription(db, config, user, config.plans[0], source="manual")
+    assert renewed.id == upgraded.id
+    assert renewed.subscription_url == trial_url
+    assert len(fake.clients) == 1
 
 
 async def test_existing_client_is_adopted_on_start(db, fake) -> None:
@@ -511,7 +508,7 @@ async def test_deleted_client_keeps_history_and_trial(db, fake):
     await db.commit()
     purchases = list(await db.scalars(select(Purchase)))
     assert purchases
-    del fake.clients['tg_887']
+    del fake.clients['887']
     assert await subs.reconcile_deleted_clients(db, config, user) == 1
     await db.commit()
     assert list(await db.scalars(select(BotSubscription))) == []
@@ -550,11 +547,11 @@ async def test_rename_and_unlimited_sync_preserve_subscription(db, fake):
     await db.commit()
     before = await db.scalar(select(BotSubscription))
     before_id = before.id
-    rec = fake.clients.pop('tg_890')
+    rec = fake.clients.pop('890')
     rec['email'] = 'Renamed'
     rec['expiryTime'] = 0
     fake.clients['Renamed'] = rec
-    fake.links['Renamed'] = fake.links.pop('tg_890')
+    fake.links['Renamed'] = fake.links.pop('890')
     assert await subs.reconcile_deleted_clients(db, config, user) == 0
     await db.commit()
     after = await db.scalar(select(BotSubscription))
@@ -578,10 +575,10 @@ async def test_json_base_is_used_and_unlimited_renewal_stays_unlimited(db, fake,
     await subs.grant_trial(db, config, user)
     row = await db.scalar(select(BotSubscription))
     assert row.subscription_url.startswith('https://sub.example/json/')
-    fake.clients['tg_891']['expiryTime'] = 0
+    fake.clients['891']['expiryTime'] = 0
     await subs.reconcile_deleted_clients(db, config, user)
     await subs.extend_subscription(db, config, row, config.plans[0], source='admin', amount_kopeks=0)
-    assert row.expire_at is None and fake.clients['tg_891']['expiryTime'] == 0
+    assert row.expire_at is None and fake.clients['891']['expiryTime'] == 0
 
 
 async def test_nodes_accept_millisecond_heartbeat(fake, monkeypatch):

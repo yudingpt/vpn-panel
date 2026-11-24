@@ -35,7 +35,7 @@ services:
 
   panel-api:
     <<: *common
-    image: ${VPN_PANEL_REGISTRY:-ghcr.io/valentinvelnesev-alt}/vpn-panel-panel-api:${VPN_PANEL_TAG:-latest}
+    image: ${VPN_PANEL_REGISTRY:-ghcr.io/yudingpt}/vpn-panel-panel-api:${VPN_PANEL_TAG:-latest}
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -51,7 +51,7 @@ services:
 
   bot:
     <<: *common
-    image: ${VPN_PANEL_REGISTRY:-ghcr.io/valentinvelnesev-alt}/vpn-panel-bot:${VPN_PANEL_TAG:-latest}
+    image: ${VPN_PANEL_REGISTRY:-ghcr.io/yudingpt}/vpn-panel-bot:${VPN_PANEL_TAG:-latest}
     volumes:
       # Картинку меню и фото рассылок бот отправляет файлом с диска, а не
       # ссылкой: в режиме по IP порт панели обычно закрыт файрволом, и
@@ -85,7 +85,7 @@ services:
 
   # Собирает SPA в общий том и завершается.
   panel-web:
-    image: ${VPN_PANEL_REGISTRY:-ghcr.io/valentinvelnesev-alt}/vpn-panel-panel-web:${VPN_PANEL_TAG:-latest}
+    image: ${VPN_PANEL_REGISTRY:-ghcr.io/yudingpt}/vpn-panel-panel-web:${VPN_PANEL_TAG:-latest}
     env_file: .env
     networks: [vpnpanel]
     restart: "no"

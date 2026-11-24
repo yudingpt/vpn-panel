@@ -90,7 +90,7 @@ apt install -y git
 Скачайте панель и запустите установщик:
 
 ```bash
-git clone https://github.com/valentinvelnesev-alt/vpn-panel vpn-panel
+git clone https://github.com/yudingpt/vpn-panel vpn-panel
 cd vpn-panel
 bash install.sh
 ```
@@ -238,7 +238,7 @@ server {
 
 ```bash
 cd ~/vpn-panel
-curl -fsSL https://raw.githubusercontent.com/valentinvelnesev-alt/vpn-panel/main/update.sh -o update.sh
+curl -fsSL https://raw.githubusercontent.com/yudingpt/vpn-panel/main/update.sh -o update.sh
 bash update.sh
 ```
 

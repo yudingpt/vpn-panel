@@ -163,7 +163,7 @@ def test_discount_and_menu_settings(client: TestClient) -> None:
     )
     body = r.json()
     assert body["menu_hidden"] == ["support", "promo"]
-    assert body["allow_multiple_subscriptions"] is True
+    assert body["allow_multiple_subscriptions"] is False
     assert body["support_url"] is None  # пустая строка не превращается в кнопку
 
 

@@ -170,8 +170,8 @@ class Config:
     # Общая скидка на все обычные тарифы; discount_until пусто — бессрочно.
     discount_percent: int = 0
     discount_until: datetime | None = None
-    # False — у клиента одна подписка, «Купить» при наличии ключа продлевает
-    # его; True — «Купить ещё одну» заводит отдельный ключ.
+    # Оставлено для совместимости с API/тестами: всегда False, несколько
+    # подписок на клиента больше не поддерживаются.
     allow_multiple_subscriptions: bool = False
     # Кнопки, скрытые админом в панели (ключи — keyboards.MENU_BUTTONS).
     menu_hidden: frozenset[str] = frozenset()
@@ -419,7 +419,8 @@ async def load(db: AsyncSession) -> Config:
         menu_photo=row.menu_photo,
         discount_percent=row.discount_percent or 0,
         discount_until=row.discount_until,
-        allow_multiple_subscriptions=row.allow_multiple_subscriptions,
+        # Функционал нескольких подписок выпилен: у клиента один ключ.
+        allow_multiple_subscriptions=False,
         menu_hidden=frozenset(row.menu_hidden or []),
         menu_columns=min(max(int(row.menu_columns or 1), 1), 3),
         menu_styles=dict(row.menu_styles or {}),

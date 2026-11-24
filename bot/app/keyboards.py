@@ -137,8 +137,7 @@ def main_menu(
     кнопок в ряд (1–3) и их цвет задаются в панели.
 
     Нет ни одного ключа — «Купить подписку». Есть — «Продлить подписку»:
-    раньше «Купить» при живой подписке заводил второй ключ вместо продления.
-    Отдельный новый ключ — «Купить ещё одну», если это разрешено в панели.
+    «Купить» при живой подписке продлевает её, а не заводит второй ключ.
     """
     items: list[tuple[str, str, dict]] = []  # (ключ, подпись, параметры кнопки)
     if trial_available and config.shows("trial"):
@@ -146,8 +145,6 @@ def main_menu(
 
     if has_subscription:
         items.append(("buy", config.label("renew"), {"callback_data": "renew", "icon": "clock"}))
-        if config.allow_multiple_subscriptions:
-            items.append(("buy_more", config.label("buy_more"), {"callback_data": "plans_new", "icon": "buy"}))
         if config.shows("subscriptions"):
             items.append(
                 ("subscriptions", config.label("subscriptions"), {"callback_data": "my_subscriptions", "icon": "subscription"})
@@ -389,8 +386,8 @@ def pay_menu(config: Config, *, pay_url: str, payment_id: int) -> InlineKeyboard
 def subscriptions_menu(
     config: Config, subscriptions: list, titles: dict[int, str]
 ) -> InlineKeyboardMarkup:
-    """«Мои подписки» — список ключей. Показываем название тарифа, а не
-    техническое имя аккаунта Remnawave вида tg_123_ab12cd."""
+    """«Мои подписки» — ключ клиента. Показываем название тарифа, а не
+    техническое имя аккаунта Remnawave."""
     rows = []
     for sub in subscriptions:
         until = f"до {sub.expire_at.strftime('%d.%m.%Y')}" if sub.expire_at else "бессрочно"
