@@ -7,6 +7,7 @@
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -20,6 +21,13 @@ from shared.remnawave.models import User as RemoteUser
 from tests.test_panel_api import LOGIN, PASSWORD, _db  # noqa: F401  — фикстура БД
 
 BACKUP = Path(__file__).parent / "fixtures" / "stealthnet-backup-2026-10-06T12-00-00.sql"
+
+# Файл-фикстура *.sql не включён в репозиторий (он в .gitignore), поэтому
+# тесты переноса STEALTHNET выполняются только там, где дамп реально есть.
+pytestmark = pytest.mark.skipif(
+    not BACKUP.exists(),
+    reason="нет файла-фикстуры stealthnet (не включён в репозиторий)",
+)
 
 
 def _remote(id_, uuid, short=None, tg=None) -> RemoteUser:
