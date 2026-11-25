@@ -188,7 +188,7 @@ function MenuEditor({ status }: { status: BotStatus }) {
   }
   const menuHtml = telegramHtml(
     form.welcome_text || SAMPLE_MENU(hasSub),
-    { brand: status.bot_name || 'VPN' },
+    { brand: status.bot_name || 'VPN', name: 'Иван' },
     copy?.icons ?? {},
   )
 
@@ -203,13 +203,13 @@ function MenuEditor({ status }: { status: BotStatus }) {
   return (
     <>
       <Card className="space-y-4">
-        <SectionTitle hint="Первый экран бота. Пусто — стандартный текст с датой подписки. Можно HTML-разметку и {brand} — название бота.">
+        <SectionTitle hint="Первый экран бота. Пусто — стандартный текст с датой подписки. Можно HTML-разметку, {brand} — название бота и {name} — имя клиента.">
           Приветствие
         </SectionTitle>
         <Textarea
           value={form.welcome_text ?? ''}
           onChange={(e) => set('welcome_text', e.target.value || null)}
-          placeholder={'{brand}\n\nБыстрый и безопасный VPN. Выберите тариф или попробуйте бесплатно.'}
+          placeholder={'{name}, привет!\n\nВыберите тариф или попробуйте бесплатно.'}
           rows={4}
         />
       </Card>

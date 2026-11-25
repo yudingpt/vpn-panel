@@ -1,5 +1,6 @@
 """Логика бота: рендер эмодзи, выдача и продление подписок, напоминания."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -142,6 +143,70 @@ def test_panel_override_wins_over_builtin() -> None:
 def test_render_substitutes_values() -> None:
     out = texts.render("{@check} до {until}", EmojiMode.PLAIN, until="01.01.2027")
     assert out == "✅ до 01.01.2027"
+
+
+# ── Приветствие меню ──────────────────────────────────────────────────
+def test_menu_text_custom_welcome_substitutes_name_and_brand(config) -> None:
+    from app.handlers import _menu_text
+
+    cfg, _ = config
+    cfg = replace(cfg, welcome_text="{@shield} {brand}: привет, {name}!")
+    user = BotUser(telegram_id=1)
+
+    out = _menu_text(cfg, name="Иван", user=user, plan_title=None)
+
+    assert out == "🛡 Test VPN: привет, Иван!"
+
+
+def test_menu_text_escapes_name(config) -> None:
+    from app.handlers import _menu_text
+
+    cfg, _ = config
+    cfg = replace(cfg, welcome_text="Привет, {name}!")
+    user = BotUser(telegram_id=1)
+
+    out = _menu_text(cfg, name="<b>Иван & Ко</b>", user=user, plan_title=None)
+
+    assert out == "Привет, &lt;b&gt;Иван &amp; Ко&lt;/b&gt;!"
+
+
+def test_menu_text_does_not_expand_braces_inside_name(config) -> None:
+    """Имя вставляется после замены {brand}, поэтому фигурные скобки в нём
+    не должны раскрываться повторно."""
+    from app.handlers import _menu_text
+
+    cfg, _ = config
+    cfg = replace(cfg, welcome_text="{brand}: {name}")
+    user = BotUser(telegram_id=1)
+
+    out = _menu_text(cfg, name="{brand}", user=user, plan_title=None)
+
+    assert out == "Test VPN: {brand}"
+
+
+def test_menu_text_custom_welcome_without_name_is_unchanged(config) -> None:
+    from app.handlers import _menu_text
+
+    cfg, _ = config
+    cfg = replace(cfg, welcome_text="Добро пожаловать в {brand}")
+    user = BotUser(telegram_id=1)
+
+    out = _menu_text(cfg, name="Иван", user=user, plan_title=None)
+
+    assert out == "Добро пожаловать в Test VPN"
+
+
+def test_menu_text_default_when_welcome_empty(config) -> None:
+    from app.handlers import _menu_text
+
+    cfg, _ = config
+    user = BotUser(telegram_id=1)
+
+    out = _menu_text(cfg, name="Иван", user=user, plan_title=None)
+
+    assert "👤 Иван" in out
+    assert "Подписка: <b>отсутствует</b>" in out
+    assert "Выберите действие:" in out
 
 
 # ── Пользователи ──────────────────────────────────────────────────────
