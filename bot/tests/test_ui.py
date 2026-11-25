@@ -404,6 +404,9 @@ class _FakeMessage:
     async def edit_caption(self, caption=None, reply_markup=None, **kw):
         self.calls.append(("edit_caption", caption))
 
+    async def edit_media(self, media, reply_markup=None, **kw):
+        self.calls.append(("edit_media", getattr(media, "caption", None)))
+
     async def answer(self, text, reply_markup=None, **kw):
         self.calls.append(("answer", text))
         return _FakeMessage(text=text)
@@ -430,11 +433,23 @@ async def test_screen_without_photo_edits_text() -> None:
 
 
 async def test_screen_with_photo_edits_caption() -> None:
+    """Своё фото у каждого сообщения: подпись и картинка меняются вместе,
+    поэтому экран обновляется целиком (`edit_media`). Если это то же самое
+    фото, что уже показано, хватит одной подписи — см. тест ниже."""
     from app import ui
 
+    ui.reset_photo_cache()
     msg = _FakeMessage(photo=[_FakePhoto()])
     await ui.safe_edit(msg, "привет", None, photo="/app/uploads/menu.jpg")
-    assert msg.calls == [("edit_caption", "привет")]
+    assert [call[0] for call in msg.calls] == ["edit_media"]
+    assert msg.calls[0][1] == "привет"
+
+    # file_id этого фото уже известен и совпадает с текущим — подпись.
+    ui.reset_photo_cache()
+    ui._file_ids["/app/uploads/menu.jpg"] = msg.photo[-1].file_id
+    same = _FakeMessage(photo=[_FakePhoto()])
+    await ui.safe_edit(same, "привет", None, photo="/app/uploads/menu.jpg")
+    assert same.calls == [("edit_caption", "привет")]
 
 
 async def test_text_message_is_replaced_when_photo_appears() -> None:
@@ -506,3 +521,88 @@ def test_plain_mode_has_no_button_icons() -> None:
         PREMIUM, trial_available=True, has_subscription=True, balance_kopeks=0
     )
     assert any(b.icon_custom_emoji_id for row in premium.inline_keyboard for b in row)
+
+
+# ── Фото отдельных сообщений ──────────────────────────────────────────
+def test_message_photo_falls_back_to_menu_photo(tmp_path, monkeypatch) -> None:
+    from app import config as config_module
+
+    monkeypatch.setattr(config_module, "MENU_PHOTO_DIR", str(tmp_path))
+    (tmp_path / "menu.png").write_bytes(b"x")
+    (tmp_path / "plan.png").write_bytes(b"x")
+
+    config = replace(CONFIG, menu_photo="menu.png")
+    # Ключ без своего файла наследует общую картинку.
+    assert config.message_photo_path("expired") == str(tmp_path / "menu.png")
+
+    with_own = replace(config, message_photos={"expired": "plan.png"})
+    assert with_own.message_photo_path("expired") == str(tmp_path / "plan.png")
+    assert with_own.message_photo_path("trial_granted") == str(tmp_path / "menu.png")
+
+    # Файл пропал с диска — просто без картинки, а не ошибка у клиента.
+    (tmp_path / "plan.png").unlink()
+    assert with_own.message_photo_path("expired") == str(tmp_path / "menu.png")
+
+
+async def test_switching_screen_replaces_the_photo() -> None:
+    """Подпись меняется вместе с экраном: картинку тоже нужно подменить,
+    иначе у клиента осталась бы картинка предыдущего сообщения."""
+    from app import ui
+
+    ui.reset_photo_cache()
+    msg = _FakeMessage(photo=[_FakePhoto()])
+    await ui.safe_edit(msg, "новый экран", None, photo="/app/uploads/text-expired-1.png")
+    assert [c[0] for c in msg.calls] == ["edit_media"]
+
+    # То же самое фото — достаточно поменять подпись.
+    ui.reset_photo_cache()
+    ui._file_ids["/app/uploads/text-expired-1.png"] = msg.photo[-1].file_id
+    again = _FakeMessage(photo=[_FakePhoto()])
+    await ui.safe_edit(again, "другой текст", None, photo="/app/uploads/text-expired-1.png")
+    assert [c[0] for c in again.calls] == ["edit_caption"]
+
+
+async def test_send_to_chat_uses_photo_caption_and_falls_back() -> None:
+    from app import ui
+
+    class _FakeBot:
+        def __init__(self):
+            self.calls: list[tuple[str, str | None]] = []
+
+        async def send_photo(self, chat_id, photo, caption=None, **kw):
+            self.calls.append(("send_photo", caption))
+            return _FakeMessage(photo=[_FakePhoto()])
+
+        async def send_message(self, chat_id, text, **kw):
+            self.calls.append(("send_message", text))
+
+    ui.reset_photo_cache()
+    bot = _FakeBot()
+    await ui.send_to_chat(bot, 1, "напоминание", photo="/app/uploads/menu.png")
+    assert bot.calls == [("send_photo", "напоминание")]
+
+    # Длинный текст в подпись не влезает — уходит обычным сообщением.
+    bot = _FakeBot()
+    long_text = "я" * (ui.MAX_CAPTION + 1)
+    await ui.send_to_chat(bot, 1, long_text, photo="/app/uploads/menu.png")
+    assert bot.calls == [("send_message", long_text)]
+
+    # Без фото — тоже обычное сообщение.
+    bot = _FakeBot()
+    await ui.send_to_chat(bot, 1, "текст", photo=None)
+    assert bot.calls == [("send_message", "текст")]
+
+
+def test_caption_limit_counts_visible_text_not_markup() -> None:
+    """Telegram считает длину подписи по видимому тексту: HTML-теги и
+    ссылки в лимит не входят. Иначе длинная разметка «влезала» бы у нас,
+    а Telegram отклонил бы сообщение целиком."""
+    from app import ui
+
+    visible = "я" * ui.MAX_CAPTION
+    # Много разметки, но видимый текст ровно в лимит — влезает.
+    assert ui.fits_caption(f"<b>{visible}</b>" + "<i></i>" * 500)
+    # Один лишний видимый символ — уже нет.
+    assert not ui.fits_caption(f"<b>{visible}!</b>")
+    # HTML-сущности тоже один символ каждая.
+    assert ui.visible_length("&lt;&gt;&amp;") == 3

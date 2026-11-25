@@ -48,6 +48,8 @@ class Applied:
     plan_title: str | None  # None — пополнение баланса
     kind: str = "purchase"
     method: str | None = None
+    # Ключ сообщения из shared/botcopy.MESSAGES: у него может быть своё фото.
+    message_key: str | None = None
 
 
 async def handle(payment_id: int) -> None:
@@ -56,7 +58,12 @@ async def handle(payment_id: int) -> None:
         return
 
     if applied.config.token:
-        await send(applied.config.token, applied.telegram_id, applied.text)
+        photo = (
+            applied.config.message_photo_path(applied.message_key)
+            if applied.message_key
+            else None
+        )
+        await send(applied.config.token, applied.telegram_id, applied.text, photo=photo)
 
     if applied.plan_title is not None:
         await after_purchase_effects(
@@ -121,6 +128,7 @@ async def _apply(payment_id: int) -> Applied | None:
             )
             plan_title = f"+{package.traffic_gb} ГБ трафика"
             kind = "traffic"
+            message_key = None
         elif payment.purpose == PaymentPurpose.TOPUP:
             await wallet.credit(
                 db,
@@ -137,6 +145,7 @@ async def _apply(payment_id: int) -> Applied | None:
             )
             plan_title = None
             kind = "topup"
+            message_key = "payment_topup_paid"
         else:
             plan = await config_module.load_plan(db, payment.plan_id)
             if plan is None:
@@ -179,6 +188,7 @@ async def _apply(payment_id: int) -> Applied | None:
                 until=until.strftime("%d.%m.%Y") if until else "—",
             )
             plan_title = plan.full_title
+            message_key = "payment_plan_paid"
 
         payment.applied_at = datetime.now(UTC)
         return Applied(
@@ -190,6 +200,7 @@ async def _apply(payment_id: int) -> Applied | None:
             plan_title=plan_title,
             kind=kind,
             method=str(payment.provider),
+            message_key=message_key,
         )
 
 

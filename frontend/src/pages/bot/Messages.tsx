@@ -1,16 +1,21 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { RotateCcw } from 'lucide-react'
+import { Image as ImageIcon, RotateCcw } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BotPage } from '@/components/BotShell'
 import { SaveBar } from '@/components/page'
 import { TelegramPreview, telegramHtml } from '@/components/telegram'
 import { Button, Card, Textarea } from '@/components/ui'
+import { PhotoButtons, useMessagePhoto } from '@/components/MessagePhoto'
 import { panel, type BotCopy, type CopyItem } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApplyConfirmation } from '@/lib/applied'
 import { examples, useBotCopy } from '@/lib/copy'
 
 const effective = (item: CopyItem) => item.value ?? item.default
+
+// Подпись к фото в Telegram — не больше 1024 символов: длиннее бот
+// отправит сообщение без картинки (см. bot/app/ui.py).
+const MAX_CAPTION = 1024
 
 /** Подстановки и значки, которых нет у этого сообщения, — бот показал бы их
  *  клиенту как есть. Ловим сразу при наборе, а не при сохранении. */
@@ -39,10 +44,17 @@ function Editor({ copy }: { copy: BotCopy }) {
     () => Object.fromEntries(items.map((i) => [i.key, effective(i)])),
     [items],
   )
-  useEffect(() => setDrafts(serverState), [serverState])
+  // Зависимость — сами тексты, а не массив целиком: загрузка фото меняет
+  // объекты в кэше, и черновик незавершённой правки иначе сбрасывался бы.
+  const serverSignature = items
+    .map((i) => `${i.key}\u0000${effective(i)}`)
+    .join('\u0001')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setDrafts(serverState), [serverSignature])
 
   const item = items.find((i) => i.key === selected) ?? items[0]
   const text = drafts[item.key] ?? ''
+  const photo = useMessagePhoto(item.key)
   const changed = (i: CopyItem) => (drafts[i.key] ?? '').trim() !== i.default.trim()
   const dirty = items.some((i) => (drafts[i.key] ?? '') !== serverState[i.key])
 
@@ -96,6 +108,12 @@ function Editor({ copy }: { copy: BotCopy }) {
               )}
             >
               <span className="min-w-0 flex-1 truncate">{i.title}</span>
+              {i.photo_url && (
+                <ImageIcon
+                  className="size-3.5 shrink-0 text-muted"
+                  aria-label="Своё фото"
+                />
+              )}
               {changed(i) && (
                 <span className="size-2 shrink-0 rounded-full bg-accent" title="Свой текст" />
               )}
@@ -108,6 +126,33 @@ function Editor({ copy }: { copy: BotCopy }) {
             <div>
               <h2 className="font-medium">{item.title}</h2>
               <p className="mt-1 text-sm text-muted">{item.where}</p>
+            </div>
+
+            <div className="space-y-3 rounded-2xl border border-border/60 p-3">
+              <p className="text-sm font-medium">Картинка сообщения</p>
+              <p className="text-xs text-muted">
+                Показывается над текстом этого сообщения. JPEG, PNG или WebP до 5 МБ.
+                Применяется сразу. Без своей картинки — как на всех экранах, из блока
+                «Картинка меню».
+              </p>
+              {item.photo_url ? (
+                <img
+                  src={item.photo_url}
+                  alt="Картинка сообщения"
+                  className="max-h-40 rounded-xl border object-contain"
+                />
+              ) : (
+                <p className="text-xs text-muted">
+                  Своей картинки нет — используется картинка меню.
+                </p>
+              )}
+              {photo.error && <p className="text-sm text-danger">{photo.error}</p>}
+              <PhotoButtons
+                hasPhoto={Boolean(item.photo_url)}
+                pending={photo.upload.isPending || photo.remove.isPending}
+                onPick={(file) => photo.upload.mutate(file)}
+                onRemove={() => photo.remove.mutate()}
+              />
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
@@ -176,6 +221,13 @@ function Editor({ copy }: { copy: BotCopy }) {
               </div>
             </div>
 
+            {text.length > MAX_CAPTION && (
+              <p className="rounded-2xl bg-warning/10 px-3 py-2 text-sm text-warning">
+                Текст длиннее {MAX_CAPTION} символов — в подпись к фото он не влезет, и бот
+                отправит сообщение без картинки.
+              </p>
+            )}
+
             {unknown.length > 0 && (
               <p className="rounded-2xl bg-warning/10 px-3 py-2 text-sm text-warning">
                 В тексте есть то, чего бот не знает: {unknown.join(', ')}. Клиент увидит это как есть
@@ -205,7 +257,18 @@ function Editor({ copy }: { copy: BotCopy }) {
             <p className="text-xs font-medium uppercase tracking-wider text-muted">
               Так увидит клиент (с примерами вместо подстановок)
             </p>
-            <TelegramPreview html={html} className="max-w-md" />
+            <div className="max-w-md space-y-2">
+              {item.photo_url && (
+                <div className="overflow-hidden rounded-2xl border border-border/60">
+                  <img
+                    src={item.photo_url}
+                    alt=""
+                    className="max-h-64 w-full object-cover"
+                  />
+                </div>
+              )}
+              <TelegramPreview html={html} />
+            </div>
           </div>
         </div>
       </div>

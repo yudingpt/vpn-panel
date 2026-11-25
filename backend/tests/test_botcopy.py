@@ -147,3 +147,104 @@ def test_texts_require_auth() -> None:
     with TestClient(app) as anon:
         assert anon.get("/api/v1/bot/texts").status_code == 401
         assert anon.put("/api/v1/bot/texts", json={"values": {}}).status_code == 401
+
+
+# ── Фото у сообщений ──────────────────────────────────────────────────
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
+
+
+def _photo_urls(client: TestClient) -> dict[str, str | None]:
+    return {m["key"]: m["photo_url"] for m in client.get("/api/v1/bot/texts").json()["messages"]}
+
+
+def test_message_photo_upload_replace_and_delete(client: TestClient) -> None:
+    assert not any(_photo_urls(client).values())
+
+    first = client.put(
+        "/api/v1/bot/texts/expired/photo",
+        files={"file": ("a.png", PNG, "image/png")},
+    )
+    assert first.status_code == 200
+    url = next(m for m in first.json()["messages"] if m["key"] == "expired")["photo_url"]
+    assert url and "/uploads/text-expired-" in url
+
+    # Замена: файл новый, ссылка другая, чужие сообщения не тронуты.
+    second = client.put(
+        "/api/v1/bot/texts/expired/photo",
+        files={"file": ("b.jpg", PNG, "image/jpeg")},
+    ).json()
+    replaced = next(m for m in second["messages"] if m["key"] == "expired")["photo_url"]
+    assert replaced != url and replaced.endswith(".jpg")
+    assert not any(
+        m["photo_url"]
+        for m in second["messages"]
+        if m["key"] != "expired"
+    )
+
+    removed = client.delete("/api/v1/bot/texts/expired/photo")
+    assert removed.status_code == 200
+    assert not any(_photo_urls(client).values())
+    # Повторное удаление — не ошибка.
+    assert client.delete("/api/v1/bot/texts/expired/photo").status_code == 200
+
+
+def test_message_photo_unknown_key_is_404(client: TestClient) -> None:
+    assert (
+        client.put(
+            "/api/v1/bot/texts/nope/photo",
+            files={"file": ("a.png", PNG, "image/png")},
+        ).status_code
+        == 404
+    )
+    assert client.delete("/api/v1/bot/texts/nope/photo").status_code == 404
+
+
+def test_message_photo_rejects_bad_type_and_big_file(client: TestClient) -> None:
+    assert (
+        client.put(
+            "/api/v1/bot/texts/expired/photo",
+            files={"file": ("a.gif", PNG, "image/gif")},
+        ).status_code
+        == 422
+    )
+    big = client.put(
+        "/api/v1/bot/texts/expired/photo",
+        files={"file": ("a.png", PNG + b"0" * (5 * 1024 * 1024), "image/png")},
+    )
+    assert big.status_code == 413
+
+
+def test_saving_texts_keeps_message_photo(client: TestClient) -> None:
+    client.put("/api/v1/bot/texts/expired/photo", files={"file": ("a.png", PNG, "image/png")})
+    body = client.put("/api/v1/bot/texts", json={"values": {"expired": "<b>Конец</b>"}}).json()
+    assert next(m for m in body["messages"] if m["key"] == "expired")["photo_url"]
+    assert client.delete("/api/v1/bot/texts/expired/photo").status_code == 200
+
+
+def test_message_photo_requires_auth() -> None:
+    with TestClient(app) as anon:
+        assert (
+            anon.put(
+                "/api/v1/bot/texts/expired/photo",
+                files={"file": ("a.png", PNG, "image/png")},
+            ).status_code
+            == 401
+        )
+        assert anon.delete("/api/v1/bot/texts/expired/photo").status_code == 401
+
+
+def test_message_photo_reports_storage_failure(client: TestClient, monkeypatch) -> None:
+    """Диск переполнен или том недоступен — честная ошибка, а не «загружено»."""
+    import app.api.v1.bot as bot_api
+
+    def broken_open(*args, **kwargs):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(bot_api, "open", broken_open, raising=False)
+    r = client.put(
+        "/api/v1/bot/texts/expired/photo",
+        files={"file": ("a.png", PNG, "image/png")},
+    )
+    assert r.status_code == 507
+    assert "нет места" in r.json()["detail"]
+    assert not any(_photo_urls(client).values())

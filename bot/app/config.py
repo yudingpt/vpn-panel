@@ -166,6 +166,9 @@ class Config:
     terms_url: str | None = None
 
     menu_photo: str | None = None
+    # Своё фото для отдельных сообщений: ключ из shared/botcopy.MESSAGES →
+    # имя файла в том же томе. Нет ключа — берётся menu_photo.
+    message_photos: dict[str, str] = field(default_factory=dict)
 
     # Общая скидка на все обычные тарифы; discount_until пусто — бессрочно.
     discount_percent: int = 0
@@ -229,11 +232,23 @@ class Config:
     def menu_photo_path(self) -> str | None:
         """Полный путь к картинке меню. None, если файла нет на диске —
         тогда экраны просто рисуются текстом, без ошибок у клиента."""
+        return self._photo_path(self.menu_photo)
+
+    def message_photo_path(self, key: str) -> str | None:
+        """Путь к фото конкретного сообщения, иначе — к картинке меню.
+
+        Ключ без своего файла наследует общую картинку: раньше все экраны
+        выглядели одинаково, и это поведение остаётся по умолчанию.
+        """
+        return self._photo_path(self.message_photos.get(key)) or self.menu_photo_path
+
+    @staticmethod
+    def _photo_path(name: str | None) -> str | None:
         import os
 
-        if not self.menu_photo:
+        if not name:
             return None
-        path = os.path.join(MENU_PHOTO_DIR, self.menu_photo)
+        path = os.path.join(MENU_PHOTO_DIR, name)
         return path if os.path.isfile(path) else None
 
     @property
@@ -417,6 +432,7 @@ async def load(db: AsyncSession) -> Config:
         privacy_policy_url=row.privacy_policy_url,
         terms_url=row.terms_url,
         menu_photo=row.menu_photo,
+        message_photos=dict(row.message_photos or {}),
         discount_percent=row.discount_percent or 0,
         discount_until=row.discount_until,
         # Функционал нескольких подписок выпилен: у клиента один ключ.

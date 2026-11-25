@@ -239,6 +239,11 @@ class BotConfig(Base, TimestampMixin):
     # Хранится имя, а не ссылка: бот берёт файл с диска и не зависит от
     # того, доступен ли адрес панели снаружи.
     menu_photo: Mapped[str | None] = mapped_column(String(255), default=None)
+    # Своё фото для отдельных сообщений: ключ из shared/botcopy.MESSAGES →
+    # имя файла в том же томе. Нет ключа — используется menu_photo.
+    message_photos: Mapped[dict[str, str]] = mapped_column(
+        JSON, default=dict, nullable=False
+    )
 
     # Алерты о падении нод (Pro) — шлются этому чату из бота.
     node_alerts_enabled: Mapped[bool] = mapped_column(

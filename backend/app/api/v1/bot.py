@@ -484,14 +484,10 @@ def _drop_photo_file(name: str | None) -> None:
         pass
 
 
-@router.put("/menu-photo", response_model=BotStatusOut)
-async def set_menu_photo(
-    admin: CurrentAdmin, db: DbSession, request: Request, file: UploadFile
-) -> BotStatusOut:
-    """Загружает картинку, которая показывается над каждым экраном бота.
+async def _save_photo(file: UploadFile, prefix: str) -> str:
+    """Проверяет картинку и кладёт её в общий том uploads.
 
-    Файл кладётся в общий том `uploads`: бот берёт его с диска и не зависит
-    от того, доступен ли адрес панели снаружи.
+    Возвращает имя файла: в БД хранится имя, а бот читает файл с диска.
     """
     ext = PHOTO_TYPES.get(file.content_type or "")
     if ext is None:
@@ -505,9 +501,30 @@ async def set_menu_photo(
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Файл больше 5 МБ")
 
     os.makedirs(settings.upload_dir, exist_ok=True)
-    name = f"menu-{uuid_lib.uuid4().hex}{ext}"
-    with open(os.path.join(settings.upload_dir, name), "wb") as f:
-        f.write(body)
+    name = f"{prefix}-{uuid_lib.uuid4().hex}{ext}"
+    try:
+        with open(os.path.join(settings.upload_dir, name), "wb") as f:
+            f.write(body)
+    except OSError as exc:
+        # Диск переполнен или том недоступен на запись. Без этой проверки
+        # панель показывала бы «загружено», а бот не находил бы файла.
+        raise HTTPException(
+            status.HTTP_507_INSUFFICIENT_STORAGE,
+            "Не удалось сохранить картинку: на сервере нет места или диск недоступен",
+        ) from exc
+    return name
+
+
+@router.put("/menu-photo", response_model=BotStatusOut)
+async def set_menu_photo(
+    admin: CurrentAdmin, db: DbSession, request: Request, file: UploadFile
+) -> BotStatusOut:
+    """Загружает картинку, которая показывается над каждым экраном бота.
+
+    Файл кладётся в общий том `uploads`: бот берёт его с диска и не зависит
+    от того, доступен ли адрес панели снаружи.
+    """
+    name = await _save_photo(file, "menu")
 
     row = await _config(db)
     previous, row.menu_photo = row.menu_photo, name

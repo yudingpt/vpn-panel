@@ -272,6 +272,8 @@ export interface CopyItem {
   variables: CopyVariable[]
   /** Своё значение; null — используется стандартное. */
   value: string | null
+  /** Своё фото сообщения; null — используется картинка меню. */
+  photo_url: string | null
 }
 
 export interface BotCopy {
@@ -613,6 +615,13 @@ export const panel = {
   botCopy: () => api<BotCopy>('/bot/texts'),
   saveBotTexts: (values: Record<string, string>) =>
     api<BotCopy>('/bot/texts', { method: 'PUT', json: { values } }),
+  setBotTextPhoto: (key: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api<BotCopy>(`/bot/texts/${key}/photo`, { method: 'PUT', body: form })
+  },
+  deleteBotTextPhoto: (key: string) =>
+    api<BotCopy>(`/bot/texts/${key}/photo`, { method: 'DELETE' }),
   support: () => api<SupportInfo>('/bot/support'),
   saveSupport: (json: {
     mode: 'link' | 'bot'

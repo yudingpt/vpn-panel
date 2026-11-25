@@ -20,6 +20,8 @@
 
 import logging
 
+from aiogram import Bot
+from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import FSInputFile, InlineKeyboardMarkup, InputMediaPhoto, Message
 
@@ -46,13 +48,34 @@ def _photo_input(path: str):
     return _file_ids.get(path) or FSInputFile(path)
 
 
+def visible_length(text: str) -> int:
+    """Сколько символов увидит клиент.
+
+    Telegram считает лимит подписи по видимому тексту, а не по разметке:
+    «<b>привет</b>» — это 6 символов, а не 15. Считаем так же, иначе
+    длинная разметка выглядела бы влезающей, а Telegram отклонил бы
+    сообщение целиком.
+    """
+    import re
+
+    plain = re.sub(r"<[^>]+>", "", text)
+    # &lt; &gt; &amp; &quot; — один символ каждый.
+    return len(re.sub(r"&(?:lt|gt|amp|quot);", "x", plain))
+
+
 def _remember(path: str, message: Message) -> None:
     if message.photo:
         _file_ids[path] = message.photo[-1].file_id
 
 
+def _same_photo(message: Message, path: str) -> bool:
+    """У сообщения уже та же картинка? Тогда её file_id менять не нужно."""
+    cached = _file_ids.get(path)
+    return bool(cached) and bool(message.photo) and message.photo[-1].file_id == cached
+
+
 def fits_caption(text: str) -> bool:
-    return len(text) <= MAX_CAPTION
+    return visible_length(text) <= MAX_CAPTION
 
 
 async def safe_edit(
@@ -86,8 +109,20 @@ async def safe_edit(
 
 
 async def _edit_as_photo(message, text, reply_markup, photo, **kwargs) -> None:
-    if message.photo:
+    if message.photo and _same_photo(message, photo):
         await message.edit_caption(caption=text, reply_markup=reply_markup, **kwargs)
+        return
+    if message.photo:
+        # У каждого сообщения может быть своя картинка: подпись меняется
+        # вместе с экраном, поэтому подменяем и медиа, иначе осталась бы
+        # картинка предыдущего экрана.
+        media = InputMediaPhoto(
+            media=_photo_input(photo),
+            caption=text,
+            parse_mode=ParseMode.HTML,
+        )
+        await message.edit_media(media, reply_markup=reply_markup)
+        _remember(photo, message)
         return
     # Текстовое сообщение картинкой не станет — заменяем его новым.
     await _delete(message)
@@ -130,7 +165,30 @@ async def send_screen(
 
 async def replace_media(message: Message, photo: str) -> None:
     """Меняет саму картинку у существующего экрана."""
-    await message.edit_media(InputMediaPhoto(media=_photo_input(photo)))
+    await message.edit_media(
+        InputMediaPhoto(media=_photo_input(photo), parse_mode=ParseMode.HTML)
+    )
+
+
+async def send_to_chat(
+    bot: Bot, chat_id: int, text: str, *, photo: str | None = None
+) -> None:
+    """Сообщение клиенту вне экранов (напоминания, оплата).
+
+    С фото — одним сообщением с подписью. Не влезло в подпись или картинка
+    не отправилась: текст важнее оформления, шлём его отдельно.
+    """
+    if photo and fits_caption(text):
+        try:
+            sent = await bot.send_photo(chat_id, _photo_input(photo), caption=text)
+            _remember(photo, sent)
+            return
+        except TelegramBadRequest as exc:
+            log.warning("Не удалось отправить фото %s: %s", photo, exc)
+            reset_photo_cache(photo)
+        except OSError as exc:
+            log.warning("Фото %s не читается: %s", photo, exc)
+    await bot.send_message(chat_id, text)
 
 
 async def _delete(message: Message) -> None:

@@ -9,17 +9,28 @@ import logging
 
 from aiogram.exceptions import TelegramAPIError, TelegramMigrateToChat
 
+from app import ui
 from app.telegram_client import make_bot
 
 log = logging.getLogger("bot.notify")
 
 
-async def send(token: str | None, chat_id: int, text: str, **kwargs: object) -> bool:
+async def send(
+    token: str | None,
+    chat_id: int,
+    text: str,
+    *,
+    photo: str | None = None,
+    **kwargs: object,
+) -> bool:
     if not token:
         return False
     bot = make_bot(token)
     try:
-        await bot.send_message(chat_id, text, **kwargs)
+        if photo:
+            await ui.send_to_chat(bot, chat_id, text, photo=photo)
+        else:
+            await bot.send_message(chat_id, text, **kwargs)
         return True
     except TelegramAPIError as exc:
         log.warning("Не удалось отправить сообщение %s: %s", chat_id, exc)

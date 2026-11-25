@@ -159,16 +159,21 @@ async def on_error(event: ErrorEvent) -> bool:
     return True
 
 
+def _photo(config: Config, key: str | None) -> str | None:
+    """Картинка экрана: своя у сообщения, иначе общая картинка меню."""
+    return config.message_photo_path(key) if key else config.menu_photo_path
+
+
 async def screen(
     message: Message,
     config: Config,
     text: str,
     reply_markup=None,
+    photo_key: str | None = None,
     **kwargs: object,
 ) -> None:
-    """Экран бота. Если в панели загружена картинка меню, показывается она
-    с подписью, иначе обычный текст (см. app/ui.py)."""
-    await _safe_edit(message, text, reply_markup, photo=config.menu_photo_path, **kwargs)
+    """Экран бота: картинка сообщения (или меню) и текст подписью."""
+    await _safe_edit(message, text, reply_markup, photo=_photo(config, photo_key), **kwargs)
 
 
 async def send_new_screen(
@@ -176,9 +181,12 @@ async def send_new_screen(
     config: Config,
     text: str,
     reply_markup=None,
+    photo_key: str | None = None,
     **kwargs: object,
 ) -> None:
-    await _send_screen(message, text, reply_markup, photo=config.menu_photo_path, **kwargs)
+    await _send_screen(
+        message, text, reply_markup, photo=_photo(config, photo_key), **kwargs
+    )
 
 
 def _icons(config: Config) -> dict[str, str]:
@@ -423,9 +431,12 @@ async def cmd_start(message: Message, config: Config, bot: Bot, state: FSMContex
             await adlinks.attach(db, config, user, payload)
 
     if not await _channel_ok(bot, config, message.from_user.id):
-        await message.answer(
+        await send_new_screen(
+            message,
+            config,
             t(config, config.message("channel_required")),
-            reply_markup=keyboards.channel_gate(config),
+            keyboards.channel_gate(config),
+            photo_key="channel_required",
         )
         return
 
@@ -521,11 +532,12 @@ async def _show_subscription(target: Message | CallbackQuery, config: Config) ->
         text = t(config, config.message("subscription_none"))
 
     markup = keyboards.back_to_menu(config)
+    photo_key = "subscription_active" if active else "subscription_none"
     if isinstance(target, CallbackQuery):
-        await screen(message, config, text, markup)
+        await screen(message, config, text, markup, photo_key=photo_key)
         await target.answer()
     else:
-        await send_new_screen(message, config, text, markup)
+        await send_new_screen(message, config, text, markup, photo_key=photo_key)
 
 
 # ── Триал ─────────────────────────────────────────────────────────────
@@ -568,6 +580,7 @@ async def cb_trial(callback: CallbackQuery, config: Config, bot: Bot) -> None:
             url=url or "—",
         ),
         None if files else keyboards.back_to_menu(config),
+        photo_key="trial_granted",
     )
     await callback.answer()
     if files:
@@ -588,7 +601,13 @@ async def _show_plans(
         discount, personal = await _plans_context(db, config, callback.from_user.id)
 
     if not config.plans and not personal:
-        await screen(callback.message, config, t(config, texts.NO_PLANS), keyboards.back_to_menu(config))
+        await screen(
+            callback.message,
+            config,
+            t(config, texts.NO_PLANS),
+            keyboards.back_to_menu(config),
+            photo_key="plans_header",
+        )
         await callback.answer()
         return
 
@@ -1409,7 +1428,13 @@ async def cb_my_subscriptions(callback: CallbackQuery, config: Config) -> None:
         if rows
         else t(config, config.message("subscription_none"))
     )
-    await screen(callback.message, config, text, keyboards.subscriptions_menu(config, rows, titles))
+    await screen(
+        callback.message,
+        config,
+        text,
+        keyboards.subscriptions_menu(config, rows, titles),
+        photo_key=None if rows else "subscription_none",
+    )
     await callback.answer()
 
 
@@ -1783,7 +1808,13 @@ async def _show_renew_plans(callback: CallbackQuery, config: Config, subscriptio
         return
 
     if not config.plans and not personal:
-        await screen(callback.message, config, t(config, texts.NO_PLANS), keyboards.back_to_menu(config))
+        await screen(
+            callback.message,
+            config,
+            t(config, texts.NO_PLANS),
+            keyboards.back_to_menu(config),
+            photo_key="plans_header",
+        )
         await callback.answer()
         return
 

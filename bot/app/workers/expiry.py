@@ -14,7 +14,7 @@ from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app import texts
+from app import texts, ui
 from app.config import Config
 from shared.db.models import BotUser, ExpiryNotification
 from shared.db.session import session
@@ -45,11 +45,13 @@ def _window_for(expire_at: datetime, now: datetime) -> str | None:
 async def _notify(bot: Bot, config: Config, user: BotUser, window: str) -> bool:
     expire_at = user.expire_at
     if window == "expired":
-        text = texts.render(config.message("expired"), config.emoji_mode, config.premium_emoji)
+        key = "expired"
+        text = texts.render(config.message(key), config.emoji_mode, config.premium_emoji)
     else:
+        key = "expiry_warning"
         left = "1 день" if window == "1d" else "3 дня"
         text = texts.render(
-            config.message("expiry_warning"),
+            config.message(key),
             config.emoji_mode,
             config.premium_emoji,
             left=left,
@@ -57,7 +59,9 @@ async def _notify(bot: Bot, config: Config, user: BotUser, window: str) -> bool:
         )
 
     try:
-        await bot.send_message(user.telegram_id, text)
+        await ui.send_to_chat(
+            bot, user.telegram_id, text, photo=config.message_photo_path(key)
+        )
     except TelegramForbiddenError:
         # Бот заблокирован — помечаем и больше не пробуем.
         user.has_stopped_bot = True
