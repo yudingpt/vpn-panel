@@ -284,7 +284,12 @@ def _menu_text(config: Config, *, name: str, user: BotUser, plan_title: str | No
     Дата берётся с ключа с самым поздним сроком (см. shared/sync.py): если
     в базе остались старые ключи, в шапке виден самый актуальный."""
     if config.welcome_text:
-        return t(config, config.welcome_text, brand=config.brand)
+        return t(
+            config,
+            config.welcome_text,
+            brand=config.brand,
+            name=html.escape(name),
+        )
 
     lines = [
         t(config, "{@rocket} <b>{brand}</b>", brand=config.brand),
